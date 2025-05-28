@@ -108,39 +108,14 @@ def test(model, test_loader, loss_fn, device):
 
     return v_accuracy, v_loss
 
-# one training epoch
-def train(model, optimizer, train_loader, loss_fn, device):
-    model.train()
-    for images, labels in train_loader:
-        # Transfering images and labels to GPU if available
-        labels = labels.to(device)
-        images = images.to(device)
-        
-        # Forward pass 
-        outputs = model(images)
-        loss = loss_fn(outputs, labels)
-        
-        # Setting all parameter gradients to zero to avoid gradient accumulation
-        optimizer.zero_grad()
-        
-        # Backward pass
-        loss.backward()
-        
-        # Updating model parameters
-        optimizer.step()
-
 def main(args):
     # define torch device
-    # use LOCAL_RANK in os.environ to set the GPU appropriately
-    local_rank = int(os.environ.get("LOCAL_RANK", default="0"))
-    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
-
-    # set up process group
-    init_process_group(backend="nccl" if torch.cuda.is_available() else "mpi")
-
-    # define torch device
     local_rank = 0
-    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{local_rank}")
+        torch.cuda.set_device(local_rank)
+    else:
+        device = torch.device("cpu")
 
     # define the dataset and the transforms we'll apply
     transform = transforms.Compose(
