@@ -201,7 +201,10 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(net.parameters(), lr=args.base_lr, momentum=args.momentum)
 
-    print(f"Beginning training: {args.epochs} epochs")
+    # only need to see this once - just have global rank == 0 print this
+    if rank == 0:
+        print(f"Beginning training: {args.epochs} epochs")
+
     # training loop
     total_time = 0
     for epoch in range(args.epochs):
