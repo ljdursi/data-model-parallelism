@@ -182,17 +182,17 @@ def main(args):
     # define loaders
     # add a parameter sampler=train_sampler or sampler=test_sampler in place of shuffle=True
     trainloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, num_workers=2, drop_last=True, sampler=train_sampler
+        train_dataset, batch_size=args.batch_size, num_workers=4, drop_last=True, sampler=train_sampler
     )
     
     testloader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, num_workers=2, drop_last=True, sampler=test_sampler
+        test_dataset, batch_size=args.batch_size, num_workers=4, drop_last=True, sampler=test_sampler
     )
 
     # instantiate model
     net = Net(num_classes).to(device)
 
-    # wrap model with nn.SyncBatchNorm.convert_sync_batchnorm to sync the batch norms across microbatches
+    # optional wrap model with nn.SyncBatchNorm.convert_sync_batchnorm to sync the batch norms across microbatches
     net = nn.SyncBatchNorm.convert_sync_batchnorm(net)
     # wrap model with nn.parallel.DistributedDataParallel.   You'll have to provide device_ids=[local_rank])
     net = DDP(net, device_ids=[local_rank])
@@ -202,7 +202,7 @@ def main(args):
     optimizer = optim.SGD(net.parameters(), lr=args.base_lr, momentum=args.momentum)
 
     # only need to see this once - just have global rank == 0 print this
-    if rank == 0:
+    if global_rank == 0:
         print(f"Beginning training: {args.epochs} epochs")
 
     # training loop
