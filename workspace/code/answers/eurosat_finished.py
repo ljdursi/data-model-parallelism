@@ -17,7 +17,7 @@ import torchvision.transforms.v2 as transforms
 # add torch DDP import - import as DDP
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-# import init_process_group and destroy_process_group from torch distributed
+# import torch distributed as dist for barrier, process_group operations, reductions
 import torch.distributed as dist
 
 
@@ -118,36 +118,27 @@ def test(model, test_loader, loss_fn, device):
 
     return v_accuracy, v_loss
 
-# one training epoch
-def train(model, optimizer, train_loader, loss_fn, device):
-    model.train()
-    for images, labels in train_loader:
-        # Transfering images and labels to GPU if available
-        labels = labels.to(device)
-        images = images.to(device)
-        
-        # Forward pass 
-        outputs = model(images)
-        loss = loss_fn(outputs, labels)
-        
-        # Setting all parameter gradients to zero to avoid gradient accumulation
-        optimizer.zero_grad()
-        
-        # Backward pass
-        loss.backward()
-        
-        # Updating model parameters
-        optimizer.step()
-
 
 def main(args):
     # define torch device
     # use LOCAL_RANK in os.environ to set the GPU appropriately
     local_rank = int(os.environ.get("LOCAL_RANK", default="0"))
-    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{local_rank}")
+        torch.cuda.set_device(local_rank)
+    else:
+        device = torch.device("cpu")
 
     # set up process group
-    dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "mpi")
+    # you'll need RANK (as the global rank) and WORLD_SIZE to pass init_process_group
+    # and local_rank for device_id
+    world_size = int(os.environ.get('WORLD_SIZE', '1'))
+    global_rank = int(os.environ.get('RANK', '0'))
+
+    dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "mpi",
+                            world_size=world_size,
+                            rank=global_rank,
+                            device_id=device)
 
     # define the dataset and the transforms we'll apply
     transform = transforms.Compose(
@@ -177,28 +168,25 @@ def main(args):
 
     # dataset split
     total_count = len(dataset)
-    train_count = i1Ghnt(0.6 * total_count)
+    train_count = int(0.6 * total_count)
     valid_count = int(0.2 * total_count)
     test_count = total_count - train_count - valid_count
     
     train_dataset, valid_dataset, test_dataset = tud.random_split(dataset, (train_count, valid_count, test_count))
 
     # define train_sampler and test_sampler from tud.distributed.DistributedSampler
-    # need WORLD_SIZE and RANK (e.g. global rank) from os.environ for num_replicas and rank, respectively
-    world_size = os.environ.get('WORLD_SIZE', 1)
-    global_rank = os.environ.get('RANK', 0)
-
-    train_sampler = tud.distributed.DistributedSampler(train_set, num_replicas=world_size, rank=global_rank)
-    test_sampler = tud.distributed.DistributedSampler(test_set, num_replicas=world_size, rank=global_rank)
+    # remember to specifiy num_replicas (from WORLD_SIZE) and rank
+    train_sampler = tud.distributed.DistributedSampler(train_dataset, num_replicas=world_size, rank=global_rank)
+    test_sampler = tud.distributed.DistributedSampler(test_dataset, num_replicas=world_size, rank=global_rank)
 
     # define loaders
-    # add a parameter sampler=train_sampler or sampler=test_sampler
+    # add a parameter sampler=train_sampler or sampler=test_sampler in place of shuffle=True
     trainloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True, sampler=train_sampler
+        train_dataset, batch_size=args.batch_size, num_workers=2, drop_last=True, sampler=train_sampler
     )
     
     testloader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True, sampler=test_sampler
+        test_dataset, batch_size=args.batch_size, num_workers=2, drop_last=True, sampler=test_sampler
     )
 
     # instantiate model
