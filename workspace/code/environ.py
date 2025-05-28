@@ -4,18 +4,11 @@ Prints all the environment variables that contain a keyword
 """
 import os
 
+rank = os.environ.get('RANK', '0')
+prefix = f"{rank:>3}\t"
+
 keywords = ["WORLD", "RANK", "PORT", "MASTER", "LOCAL"]
 
-prefix = ''
-if 'RANK' in os.environ.keys():
-    rank = int(os.environ['RANK'])
-    prefix = f"{rank:3d}\t"
-
 for k, v in os.environ.items():
-    output = False
-    for word in keywords:
-        if word in k:
-            output = True
-            break
-    if output:
-        print(f"{prefix}{k:25s}\t\t{v}")
+    if any(word in k for word in keywords):
+        print(f"{prefix}{k:25s}\t{v}")
