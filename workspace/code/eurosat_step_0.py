@@ -130,6 +130,18 @@ def train(model, optimizer, train_loader, loss_fn, device):
         optimizer.step()
 
 def main(args):
+    # define torch device
+    # use LOCAL_RANK in os.environ to set the GPU appropriately
+    local_rank = int(os.environ.get("LOCAL_RANK", default="0"))
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+
+    # set up process group
+    init_process_group(backend="nccl" if torch.cuda.is_available() else "mpi")
+
+    # define torch device
+    local_rank = 0
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+
     # define the dataset and the transforms we'll apply
     transform = transforms.Compose(
         [
@@ -163,9 +175,6 @@ def main(args):
     testloader = torch.utils.data.DataLoader(
         test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True
     )
-
-    # define torch device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # instantiate model
     net = Net(num_classes).to(device)
