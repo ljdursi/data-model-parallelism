@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Prints all the environment variables that contain a keyword
+Prints hello world from each rank
 """
 import os
 
