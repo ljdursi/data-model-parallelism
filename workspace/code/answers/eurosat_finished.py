@@ -151,10 +151,9 @@ def main(args):
         ]
     )
 
-    print("Downloading data if needed")
-
     # only need to download data once per node but everyone needs to know information about the dataset
     if local_rank == 0:
+        print("Downloading data if needed")
         dataset = torchvision.datasets.EuroSAT(root="./data", download=True, transform=transform)
     # wait for everyone
     dist.barrier()
