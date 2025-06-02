@@ -19,4 +19,4 @@ services:
       stack: 67108864
     shm_size: '2gb'
     command: >
-      sh -c "pip install jupyterlab-nvdashboard && jupyter-lab --no-browser --allow-root --ip=0.0.0.0 --port=8888 --NotebookApp.token="" --notebook-dir=/workspace/"
+      sh -c "pip install jupyterlab-nvdashboard && tensorboard --logdir /workspace/logs --port 8889 && jupyter-lab --no-browser --allow-root --ip=0.0.0.0 --port=8888 --NotebookApp.token='' --notebook-dir=/workspace/"
