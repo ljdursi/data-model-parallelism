@@ -111,11 +111,7 @@ def test(model, test_loader, loss_fn, device):
 def main(args):
     # define torch device
     local_rank = 0
-    if torch.cuda.is_available():
-        device = torch.device(f"cuda:{local_rank}")
-        torch.cuda.set_device(local_rank)
-    else:
-        device = torch.device("cpu")
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
     # define the dataset and the transforms we'll apply
     transform = transforms.Compose(

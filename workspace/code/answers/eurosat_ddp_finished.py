@@ -123,11 +123,7 @@ def main(args):
     # define torch device
     # use LOCAL_RANK in os.environ to set the GPU appropriately
     local_rank = int(os.environ.get("LOCAL_RANK", default="0"))
-    if torch.cuda.is_available():
-        device = torch.device(f"cuda:{local_rank}")
-        torch.cuda.set_device(local_rank)
-    else:
-        device = torch.device("cpu")
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
     # set up process group
     # you'll need RANK (as the global rank) and WORLD_SIZE to pass init_process_group
