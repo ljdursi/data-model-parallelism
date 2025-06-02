@@ -83,33 +83,52 @@ class Net(nn.Module):
         return x
 
 # apply the model on validation data for accuracy metrics
-def test(model, test_loader, loss_fn, device, rank, world_size, pipe_model=None, schedule=None, stage=None):
-    v_accuracy, v_loss = 0.0, 0.0
+def test(model, test_loader, device, rank, world_size, pipe_model=None, schedule=None, stage=None):
     correct_labels, total_labels, loss_total = 0, 0, 0.0
 
+    # Set the pipeline stage to evaluation mode
+    stage.submod.eval()
+    
     for i, data in enumerate(test_loader, 0):
         inputs, labels = data[0], data[1]
+            
+        # Prepare inputs and labels for the correct ranks
         if rank == 0:
             inputs = inputs.to(device)
+                
+        # Only the last rank needs the labels
         if rank == world_size - 1:
             labels = labels.to(device)
 
+        outputs = None # Initialize outputs for the last rank
+            
+        # All ranks call schedule.step() for forward pass
         if rank == 0:
-            schedule.step(inputs)
-        elif rank != world_size - 1:
-            schedule.step()
+            # Rank 0 provides input data
+            outputs = schedule.step(inputs)
+        elif rank == world_size - 1:
+            # Last rank calls step with targets to calculate loss
+            losses = []
+            outputs = schedule.step(target=labels, losses=losses) # Pass labels as target
+            loss_total += sum(losses)
         else:
-            outputs = schedule.step()
-            loss = loss_fn(outputs, labels)
+            # Intermediate ranks simply call step to pass data through
+            schedule.step()
+
+        # Only the last rank calculates metrics after the step
+        if rank == world_size - 1:
             predictions = torch.max(outputs, 1)[1]
             total_labels += len(labels)
-            correct_labels += (predictions == labels).sum()
-            loss_total += loss
+            correct_labels += (predictions == labels).sum().item()
 
+    v_accuracy, v_loss = 0.0, 0.0
     if rank == world_size - 1:
-        v_accuracy = correct_labels / total_labels
-        v_loss = loss_total / len(test_loader)
+        if total_labels > 0:
+            v_accuracy = correct_labels / total_labels
+        if len(test_loader) > 0:
+            v_loss = loss_total / len(test_loader)
 
+    stage.submod.train()
     return v_accuracy, v_loss
 
 def main(args):
@@ -245,14 +264,11 @@ def main(args):
             if rank == 0:
                 schedule.step(inputs)
             elif rank == world_size - 1:
-                outputs = schedule.step(target=labels)
+                losses = []
+                schedule.step(target=labels, losses=losses)
+                running_loss += sum(losses).item()
             else:
                 schedule.step()
-
-            # The last rank computes the loss and performs backward pass
-            if rank == world_size - 1:
-                loss = criterion(outputs, labels)
-                running_loss += loss.item()
 
             # All ranks call optimizer.step() to update their stage's parameters
             optimizer.step()
@@ -261,7 +277,7 @@ def main(args):
         epoch_time = time.time() - t0
         total_time += epoch_time
 
-        v_accuracy, v_loss = test(net, testloader, criterion, device, rank, world_size, pipe_model=pipe, schedule=schedule, stage=stage)
+        v_accuracy, v_loss = test(net, testloader, device, rank, world_size, pipe_model=pipe, schedule=schedule, stage=stage)
         if rank == world_size - 1:
             images_per_sec = len(trainloader) * args.batch_size / epoch_time
             print(
@@ -287,7 +303,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='EuroSAT training example',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--batch-size', type=int, default=8, help='input batch size for training')
+    parser.add_argument('--batch-size', type=int, default=32, help='input batch size for training')
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train')
     parser.add_argument('--base-lr', type=float, default=0.01, help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
