@@ -209,24 +209,6 @@ def main(args):
     # Create the pipeline
     pipe = pipeline(net, mb_args=(example_input,), split_spec=split_spec)
 
-    if rank == 0:
-        print("\n" + "*" * 80)
-        print(" PyTorch Pipeline Parallelism Model ".center(80, "*"))
-        print("*" * 80 + "\n")
-        print(pipe)
-        print("\n" + "*" * 80)
-        print(" Stage 0 (conv_block1) ".center(80, "*"))
-        print("*" * 80 + "\n")
-        print(pipe.split_gm.submod_0)
-        print("\n" + "*" * 80)
-        print(" Stage 1 (conv_block2) ".center(80, "*"))
-        print("*" * 80 + "\n")
-        print(pipe.split_gm.submod_1)
-        print("\n" + "*" * 80)
-        print(" Stage 2 (conv_block3, global_avg_pool, classifier) ".center(80, "*"))
-        print("*" * 80 + "\n")
-        print(pipe.split_gm.submod_2)
-
 
     # Build the pipeline stage for the current rank
     stage = pipe.build_stage(rank, device, dist.group.WORLD)
@@ -235,12 +217,12 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
 
     # Attach to a schedule
-    schedule = ScheduleGPipe(stage, n_microbatches=args.chunks, loss_fn=criterion)
+    train_schedule = ScheduleGPipe(stage, n_microbatches=args.chunks, loss_fn=criterion)
+    test_schedule = ScheduleGPipe(stage, n_microbatches=args.chunks)
 
     # The optimizer should only optimize parameters on the current stage
     optimizer = optim.SGD(stage.submod.parameters(), lr=args.base_lr, momentum=args.momentum)
 
-    print(f"{rank}: let's get started training!")
     if rank == 0:
         print(f"Beginning training: {args.epochs} epochs")
 
@@ -262,13 +244,14 @@ def main(args):
             # Forward + backward + optimize using the pipeline schedule
             # Only rank 0 provides the input data
             if rank == 0:
-                schedule.step(inputs)
+                train_schedule.step(inputs)
             elif rank == world_size - 1:
                 losses = []
-                schedule.step(target=labels, losses=losses)
-                running_loss += sum(losses).item()
+                train_schedule.step(target=labels, losses=losses)
+                local_loss=torch.stack(losses).avg().item()
+                running_loss += local_loss
             else:
-                schedule.step()
+                train_schedule.step()
 
             # All ranks call optimizer.step() to update their stage's parameters
             optimizer.step()
@@ -276,8 +259,10 @@ def main(args):
         # Timing
         epoch_time = time.time() - t0
         total_time += epoch_time
+        if rank == 0:
+            print(f"Epoch {epoch}, time = {epoch_time}, tot_time = {total_time}, loss = {local_loss}")
 
-        v_accuracy, v_loss = test(net, testloader, device, rank, world_size, pipe_model=pipe, schedule=schedule, stage=stage)
+        v_accuracy, v_loss = test(net, testloader, device, rank, world_size, pipe_model=pipe, schedule=test_schedule, stage=stage)
         if rank == world_size - 1:
             images_per_sec = len(trainloader) * args.batch_size / epoch_time
             print(
