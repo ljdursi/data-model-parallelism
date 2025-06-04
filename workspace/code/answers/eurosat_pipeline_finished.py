@@ -83,44 +83,50 @@ class Net(nn.Module):
         return x
 
 # apply the model on validation data for accuracy metrics
-def test(model, test_loader, device, rank, world_size, pipe_model=None, schedule=None, stage=None):
+def test(model, test_loader, device, rank, world_size, chunks, test_schedule, test_stage):
     correct_labels, total_labels, loss_total = 0, 0, 0.0
 
-    # Set the pipeline stage to evaluation mode
-    stage.submod.eval()
+    # Set the test stage to evaluation mode
+    test_stage.submod.eval()
     
-    for i, data in enumerate(test_loader, 0):
-        inputs, labels = data[0], data[1]
+    # Create criterion for validation loss
+    criterion = nn.CrossEntropyLoss()
+
+    with torch.no_grad():
+        for i, data in enumerate(test_loader, 0):
+            inputs, labels = data[0], data[1]
             
-        # Prepare inputs and labels for the correct ranks
-        if rank == 0:
-            inputs = inputs.to(device)
+            if rank == 0:
+                inputs = inputs.to(device)      
+            if rank == world_size - 1:
+                labels = labels.to(device)
+
+            outputs = None
+            
+            if rank == 0:
+                test_schedule.step(inputs)
+            elif rank == world_size - 1:
+                outputs = test_schedule.step()
+                predictions = torch.max(outputs, 1)[1]
+                total_labels += len(labels)
+                correct_labels += (predictions == labels).sum().item()
                 
-        # Only the last rank needs the labels
-        if rank == world_size - 1:
-            labels = labels.to(device)
+                # Calculate validation loss
+                loss_total += criterion(outputs, labels).item()
+            else:
+                test_schedule.step()
 
-        outputs = None # Initialize outputs for the last rank
+            # In validation, add this on the last rank
+            if rank == world_size - 1 and i == 0:
+                print(f"Model outputs shape: {outputs.shape}")
+                print(f"Model outputs range: [{outputs.min():.3f}, {outputs.max():.3f}]")
+                print(f"Sample outputs: {outputs[0][:5]}")  # First 5 logits of first sample
+                
+
+            dist.barrier()
+    
+    test_stage.submod.train()
             
-        # All ranks call schedule.step() for forward pass
-        if rank == 0:
-            # Rank 0 provides input data
-            outputs = schedule.step(inputs)
-        elif rank == world_size - 1:
-            # Last rank calls step with targets to calculate loss
-            losses = []
-            outputs = schedule.step(target=labels, losses=losses) # Pass labels as target
-            loss_total += sum(losses)
-        else:
-            # Intermediate ranks simply call step to pass data through
-            schedule.step()
-
-        # Only the last rank calculates metrics after the step
-        if rank == world_size - 1:
-            predictions = torch.max(outputs, 1)[1]
-            total_labels += len(labels)
-            correct_labels += (predictions == labels).sum().item()
-
     v_accuracy, v_loss = 0.0, 0.0
     if rank == world_size - 1:
         if total_labels > 0:
@@ -128,8 +134,8 @@ def test(model, test_loader, device, rank, world_size, pipe_model=None, schedule
         if len(test_loader) > 0:
             v_loss = loss_total / len(test_loader)
 
-    stage.submod.train()
     return v_accuracy, v_loss
+
 
 def main(args):
     # Initialize distributed environment
@@ -152,7 +158,6 @@ def main(args):
         ]
     )
 
-    print(f"{rank}: set up complete, about to look at data")
     if rank == 0:
         print("Downloading data if needed")
         dataset = torchvision.datasets.EuroSAT(root="./data", download=True, transform=transform)
@@ -164,7 +169,6 @@ def main(args):
                "Pasture", "PermanentCrop", "Residential", "River", "SeaLake"]
     num_classes = len(classes)
 
-    print(f"{rank}: now going to split data")
     # dataset split
     total_count = len(dataset)
     train_count = int(0.6 * total_count)
@@ -181,8 +185,6 @@ def main(args):
     testloader = torch.utils.data.DataLoader(
         test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True
     )
-
-    print(f"{rank}: instantiating model")
 
     # Instantiate the model
     net = Net(num_classes).to(device)
@@ -209,16 +211,24 @@ def main(args):
     # Create the pipeline
     pipe = pipeline(net, mb_args=(example_input,), split_spec=split_spec)
 
-
     # Build the pipeline stage for the current rank
     stage = pipe.build_stage(rank, device, dist.group.WORLD)
+    test_stage = pipe.build_stage(rank, device, dist.group.WORLD)
 
     # define loss, optimizer
     criterion = nn.CrossEntropyLoss()
 
     # Attach to a schedule
     train_schedule = ScheduleGPipe(stage, n_microbatches=args.chunks, loss_fn=criterion)
-    test_schedule = ScheduleGPipe(stage, n_microbatches=args.chunks)
+    test_schedule = ScheduleGPipe(test_stage, n_microbatches=args.chunks)
+
+    with torch.no_grad():
+        dummy_input = torch.randn(args.batch_size, 3, 64, 64, device=device)
+        if rank == 0:
+            test_schedule.step(dummy_input)
+        else:
+            test_schedule.step()
+        dist.barrier()
 
     # The optimizer should only optimize parameters on the current stage
     optimizer = optim.SGD(stage.submod.parameters(), lr=args.base_lr, momentum=args.momentum)
@@ -228,18 +238,19 @@ def main(args):
 
     # training loop
     total_time = 0
+    local_loss = 0
+    nlosses = 0
     for epoch in range(args.epochs):
         running_loss = 0.0
         t0 = time.time()
+        optimizer.zero_grad()
+
         for i, data in enumerate(trainloader, 0):
             inputs, labels = data[0], data[1]
             if rank == 0:
                 inputs = inputs.to(device)
             elif rank == world_size - 1:
                 labels = labels.to(device)
-
-            # Zero the parameter gradients for the current stage's optimizer
-            optimizer.zero_grad()
 
             # Forward + backward + optimize using the pipeline schedule
             # Only rank 0 provides the input data
@@ -248,39 +259,31 @@ def main(args):
             elif rank == world_size - 1:
                 losses = []
                 train_schedule.step(target=labels, losses=losses)
-                local_loss=torch.stack(losses).avg().item()
+                local_loss=sum(losses).item()
                 running_loss += local_loss
+                nlosses += 1
             else:
                 train_schedule.step()
 
-            # All ranks call optimizer.step() to update their stage's parameters
-            optimizer.step()
+                        
+        # Zero the parameter gradients for the current stage's optimizer
+        optimizer.step()
 
         # Timing
+        dist.barrier()
         epoch_time = time.time() - t0
         total_time += epoch_time
-        if rank == 0:
-            print(f"Epoch {epoch}, time = {epoch_time}, tot_time = {total_time}, loss = {local_loss}")
 
-        v_accuracy, v_loss = test(net, testloader, device, rank, world_size, pipe_model=pipe, schedule=test_schedule, stage=stage)
+        v_accuracy, v_loss = test(net, testloader, device, rank, world_size, args.chunks, test_schedule, test_stage)
         if rank == world_size - 1:
             images_per_sec = len(trainloader) * args.batch_size / epoch_time
+            train_loss = running_loss/nlosses
             print(
-                f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
+                f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train loss = {train_loss:5.3f} Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
             )
-        dist.barrier() # Ensure all ranks wait for metrics to be printed
 
     if rank == 0:
         print("Finished Training")
-        save_path = "./eurosat_net_pipelined.pth"
-        # Note: Saving the entire pipelined model requires more advanced techniques
-        # or saving individual stage parameters and combining them later.
-        # For simplicity, we are not saving the full pipelined model state directly here.
-        # If you need to save, consider saving the original `net`'s state dict after training
-        # if all parameters were aggregated on one device or after gathering states.
-        # For now, we will just print that it's finished.
-        print(f"Training complete. Model state not saved directly for pipelined model in this example.")
-
 
     dist.destroy_process_group()
 
