@@ -169,10 +169,10 @@ def main(args):
     
     train_dataset, valid_dataset, test_dataset = tud.random_split(dataset, (train_count, valid_count, test_count))
 
-    # TODO - define train_sampler and test_sampler from tud.distributed.DistributedSampler
+    # TODO Step 2- define train_sampler and test_sampler from tud.distributed.DistributedSampler
     # remember to specify num_replicas (from WORLD_SIZE) and rank
     # define loaders
-    # TODO - add a parameter sampler=train_sampler or sampler=test_sampler in place of shuffle=True
+    # TODO Step 2- add a parameter sampler=train_sampler or sampler=test_sampler in place of shuffle=True
     trainloader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True
     )
@@ -184,8 +184,8 @@ def main(args):
     # instantiate model
     net = Net(num_classes).to(device)
 
-    # TODO - optional wrap model with nn.SyncBatchNorm.convert_sync_batchnorm to sync the batch norms across microbatches
-    # TODO - wrap model with nn.parallel.DistributedDataParallel.   You'll have to provide device_ids=[local_rank])
+    # TODO Step 2 - optional wrap model with nn.SyncBatchNorm.convert_sync_batchnorm to sync the batch norms across microbatches
+    # TODO Step 2 - wrap model with nn.parallel.DistributedDataParallel.   You'll have to provide device_ids=[local_rank])
     
     # define loss, optimizer
     criterion = nn.CrossEntropyLoss()
@@ -206,7 +206,7 @@ def main(args):
             running_loss = 0.0
             t0 = time.time()
 
-            # TODO - set the epoch in train_sampler so that the seed is different each time
+            # TODO Step 2 - set the epoch in train_sampler so that the seed is different each time
             for i, data in enumerate(trainloader, 0):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels = data[0].to(device), data[1].to(device)
@@ -234,7 +234,7 @@ def main(args):
             v_accuracy, v_loss = test(net, testloader, criterion, device)
 
             # the stats we just calculated were per process; we should combine these into one
-            # TODO -for v_accuracy, f_loss, these are already tensors, and we can use
+            # TODO  Step 2 - for v_accuracy, f_loss, these are already tensors, and we can use
             # dist.distributed.all_reduce(..., op=dist.ReduceOp.AVG) to average these
             # for images_per_sec we can just add them (op=dist.ReduceOp.SUM)
 
