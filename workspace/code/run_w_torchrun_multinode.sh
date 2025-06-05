@@ -28,7 +28,7 @@ id=$RANDOM
 
 rendezvous_server=localhost
 
-NTHREADS=4 # should be set up to be number of CPU cores / number of processes, generally
+NTHREADS=4 # should be set up to be number of CPU cores / number of processes, generally, but for this tutorial we set the number low
 
 OMP_NUM_THREADS=${NTHREADS} \
 torchrun --nnodes ${nnodes} \

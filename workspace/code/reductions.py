@@ -13,7 +13,6 @@ global_rank = int(os.environ.get("RANK", 0))
 world_size = int(os.environ.get("WORLD_SIZE", 1))
 
 parser = argparse.ArgumentParser(description='Synchronization example')
-parser.add_argument('--barrier', action=argparse.BooleanOptionalAction)
 
 args = parser.parse_args()
 
