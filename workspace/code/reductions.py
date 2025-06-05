@@ -22,6 +22,9 @@ device = torch.device("cpu")
 dist.init_process_group(backend="gloo", world_size=world_size, 
                         rank=global_rank)
 
+if global_rank == 0:
+    print("Starting all_reduce operation", flush=True)
+
 # e.g. on rank 0 with world_size 4, input will be [0, 0, 0, 0]
 local_result = torch.tensor([global_rank]*world_size) 
 print(f"{global_rank}: local value = {local_result}", flush=True)
@@ -30,6 +33,10 @@ print(f"{global_rank}: local value = {local_result}", flush=True)
 to_be_summed = torch.tensor([global_rank]*world_size) 
 dist.all_reduce(to_be_summed, op=dist.ReduceOp.SUM)
 print(f"{global_rank}: summed value = {to_be_summed}", flush=True)
+
+dist.barrier()
+if global_rank == 0:
+    print("Starting all_gather operation", flush=True)
 
 # all_gather
 to_be_gathered = torch.tensor([global_rank]) 
