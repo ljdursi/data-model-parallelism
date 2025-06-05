@@ -70,8 +70,10 @@ class Trainer:
     def train(self, max_epochs: int):
         for epoch in range(max_epochs):
             self._run_epoch(epoch)
+            # TODO - only one rank should checkpoint
             if epoch % self.save_every == 0:
                 self._save_checkpoint(epoch)
+
 
 def load_train_objs():
     train_set = MyTrainDataset(2048)  # load your dataset
@@ -79,6 +81,8 @@ def load_train_objs():
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
     return train_set, model, optimizer
 
+# TODO - add the distributed sampler to the loader.  Because of the
+#        sampler, we won't want shuffle to be True.
 def prepare_dataloader(dataset: Dataset, batch_size: int):
     return DataLoader(
         dataset,
@@ -88,6 +92,7 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
     )
 
 def main(save_every, total_epochs, batch_size):
+    # TODO - get local_rank (same as gpu), global_rank, world_size, as well as device
     gpu, device = setup()
     dataset, model, optimizer = load_train_objs()
     train_data = prepare_dataloader(dataset, batch_size)
