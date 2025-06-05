@@ -200,57 +200,63 @@ def main(args):
     if global_rank == 0:
         print(f"Beginning training: {args.epochs} epochs")
 
-    # training loop
-    total_time = 0
-    for epoch in range(args.epochs):
-        running_loss = 0.0
-        t0 = time.time()
+    with torch.profiler.profile(
+        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_ddp'),
+        profile_memory=True) as prof:
+        
+        # training loop
+        total_time = 0
+        for epoch in range(args.epochs):
+            running_loss = 0.0
+            t0 = time.time()
 
-        # set the epoch in train_sampler so that the seed is different each time
-        train_sampler.set_epoch(epoch)
+            # set the epoch in train_sampler so that the seed is different each time
+            train_sampler.set_epoch(epoch)
 
-        for i, data in enumerate(trainloader, 0):
-            # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data[0].to(device), data[1].to(device)
+            for i, data in enumerate(trainloader, 0):
+                # get the inputs; data is a list of [inputs, labels]
+                inputs, labels = data[0].to(device), data[1].to(device)
 
-            # zero the parameter gradients
-            optimizer.zero_grad()
+                # zero the parameter gradients
+                optimizer.zero_grad()
 
-            # forward + backward + optimize
-            outputs = net(inputs)
+                # forward + backward + optimize
+                outputs = net(inputs)
 
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
-        # synchronize with barrier at the end of each epoch, or else 
-        # stats will be wrong 
-        dist.barrier()
+            # synchronize with barrier at the end of each epoch, or else 
+            # stats will be wrong 
+            dist.barrier()
 
-        # timing
-        epoch_time = time.time() - t0
-        total_time += epoch_time
+            # timing
+            epoch_time = time.time() - t0
+            total_time += epoch_time
 
-        # output metrics at the end of each epoch
-        images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(
-            device
-        )
-        v_accuracy, v_loss = test(net, testloader, criterion, device)
-
-        # the stats we just calculated were per process; we should combine these into one
-        # for v_accuracy, f_loss, these are already tensors, and we can use
-        # dist.distributed.all_reduce(..., op=dist.ReduceOp.AVG) to average these
-        # for images_per_sec we can just add them (op=dist.ReduceOp.SUM)
-        dist.all_reduce(v_accuracy, op=dist.ReduceOp.AVG)
-        dist.all_reduce(v_loss, op=dist.ReduceOp.AVG)
-        dist.all_reduce(images_per_sec, op=dist.ReduceOp.SUM)
-    
-        # We don't need to see this line for each process (especially now that we've combined the results)
-        # Just have rank 0 print this out
-        if global_rank == 0:
-            print(
-                f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
+            # output metrics at the end of each epoch
+            images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(
+                device
             )
+            v_accuracy, v_loss = test(net, testloader, criterion, device)
+
+            # the stats we just calculated were per process; we should combine these into one
+            # for v_accuracy, f_loss, these are already tensors, and we can use
+            # dist.distributed.all_reduce(..., op=dist.ReduceOp.AVG) to average these
+            # for images_per_sec we can just add them (op=dist.ReduceOp.SUM)
+            dist.all_reduce(v_accuracy, op=dist.ReduceOp.AVG)
+            dist.all_reduce(v_loss, op=dist.ReduceOp.AVG)
+            dist.all_reduce(images_per_sec, op=dist.ReduceOp.SUM)
+    
+            # We don't need to see this line for each process (especially now that we've combined the results)
+            # Just have rank 0 print this out
+            if global_rank == 0:
+                print(
+                    f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
+                )
+            prof.step()
 
     if global_rank == 0:
         # we don't need to have all ranks print finished training

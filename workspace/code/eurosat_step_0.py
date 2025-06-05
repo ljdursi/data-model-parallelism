@@ -154,39 +154,44 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(net.parameters(), lr=args.base_lr, momentum=args.momentum)
 
-    print(f"Beginning training: {args.epochs} epochs")
-    # training loop
-    total_time = 0
-    for epoch in range(args.epochs):
-        running_loss = 0.0
-        t0 = time.time()
-        for i, data in enumerate(trainloader, 0):
-            # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data[0].to(device), data[1].to(device)
+    with torch.profiler.profile(
+        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_singlegpu'),
+        profile_memory=True) as prof:
+        
+        print(f"Beginning training: {args.epochs} epochs")
+        # training loop
+        total_time = 0
+        for epoch in range(args.epochs):
+            running_loss = 0.0
+            t0 = time.time()
+            for i, data in enumerate(trainloader, 0):
+                # get the inputs; data is a list of [inputs, labels]
+                inputs, labels = data[0].to(device), data[1].to(device)
 
-            # zero the parameter gradients
-            optimizer.zero_grad()
+                # zero the parameter gradients
+                optimizer.zero_grad()
 
-            # forward + backward + optimize
-            outputs = net(inputs)
+                # forward + backward + optimize
+                outputs = net(inputs)
 
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
-        # timing
-        epoch_time = time.time() - t0
-        total_time += epoch_time
+            # timing
+            epoch_time = time.time() - t0
+            total_time += epoch_time
 
-        # output metrics at the end of each epoch
-        images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(
-            device
-        )
-        v_accuracy, v_loss = test(net, testloader, criterion, device)
+            # output metrics at the end of each epoch
+            images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(device)
+            v_accuracy, v_loss = test(net, testloader, criterion, device)
     
-        print(
-            f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
-        )
+            print(
+                f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
+            )
+
+            prof.step()
 
     print("Finished Training")
     
@@ -197,7 +202,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='EuroSAT training example',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--batch-size', type=int, default=8, help='input batch size for training')
+    parser.add_argument('--batch-size', type=int, default=32, help='input batch size for training')
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train')
     parser.add_argument('--base-lr', type=float, default=0.01, help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
