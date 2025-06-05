@@ -1,4 +1,4 @@
-#/usr/bin/env python3
+#!/usr/bin/env python3
 """
 DDP examples from https://github.com/pytorch/examples/tree/main/distributed/ddp-tutorial-series
 Multi-GPU torchrun case, slightly tweaked
@@ -8,7 +8,6 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
-import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -16,7 +15,7 @@ from torch.distributed import init_process_group, destroy_process_group
 import os
 
 
-def ddp_setup():
+def setup():
     local_rank = int(os.environ.get('LOCAL_RANK', 0))
     global_rank = int(os.environ.get('RANK', 0))
     world_size = int(os.environ.get('WORLD_SIZE', 1))
@@ -44,34 +43,19 @@ class MyTrainDataset(Dataset):
 class Trainer:
     def __init__(
         self,
-        local_rank: int,
-        device,
         model: torch.nn.Module,
         train_data: DataLoader,
         optimizer: torch.optim.Optimizer,
-        save_every: int,
-        snapshot_path: str,
+        gpu_id: int,
+        device,
+        save_every: int
     ) -> None:
+        self.gpu_id = gpu_id
+        self.device = device
         self.model = model.to(device)
         self.train_data = train_data
         self.optimizer = optimizer
         self.save_every = save_every
-        self.epochs_run = 0
-        self.gpu_id = local_rank
-        self.device = device
-        self.snapshot_path = snapshot_path
-        if os.path.exists(snapshot_path):
-            print("Loading snapshot")
-            self._load_snapshot(snapshot_path)
-
-        self.model = DDP(self.model, device_ids=[self.gpu_id])
-
-    def _load_snapshot(self, snapshot_path):
-        #loc = f"cuda:{self.gpu_id}"
-        snapshot = torch.load(snapshot_path, map_location=device)
-        self.model.load_state_dict(snapshot["MODEL_STATE"])
-        self.epochs_run = snapshot["EPOCHS_RUN"]
-        print(f"Resuming training from snapshot at Epoch {self.epochs_run}")
 
     def _run_batch(self, source, targets):
         self.optimizer.zero_grad()
@@ -85,23 +69,21 @@ class Trainer:
         print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}")
         self.train_data.sampler.set_epoch(epoch)
         for source, targets in self.train_data:
-            source = source.to(self.gpu_id)
-            targets = targets.to(self.gpu_id)
+            source = source.to(self.device)
+            targets = targets.to(self.device)
             self._run_batch(source, targets)
 
-    def _save_snapshot(self, epoch):
-        snapshot = {
-            "MODEL_STATE": self.model.module.state_dict(),
-            "EPOCHS_RUN": epoch,
-        }
-        torch.save(snapshot, self.snapshot_path)
-        print(f"Epoch {epoch} | Training snapshot saved at {self.snapshot_path}")
+    def _save_checkpoint(self, epoch):
+        ckp = self.model.state_dict()
+        PATH = "ddp-example/multigpu-checkpoint.pt"
+        torch.save(ckp, PATH)
+        print(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
 
     def train(self, max_epochs: int):
-        for epoch in range(self.epochs_run, max_epochs):
+        for epoch in range(max_epochs):
             self._run_epoch(epoch)
             if self.gpu_id == 0 and epoch % self.save_every == 0:
-                self._save_snapshot(epoch)
+                self._save_checkpoint(epoch)
 
 
 def load_train_objs():
@@ -121,11 +103,11 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
     )
 
 
-def main(save_every: int, total_epochs: int, batch_size: int, snapshot_path: str = "snapshot.pt"):
-    local_rank, global_rank, world_size, device = ddp_setup()
+def main(save_every, total_epochs, batch_size):
+    local_rank, global_rank, world_size, device = setup()
     dataset, model, optimizer = load_train_objs()
     train_data = prepare_dataloader(dataset, batch_size)
-    trainer = Trainer(local_rank, device, model, train_data, optimizer, save_every, snapshot_path)
+    trainer = Trainer(model, train_data, optimizer, local_rank, device, save_every)
     trainer.train(total_epochs)
     destroy_process_group()
 

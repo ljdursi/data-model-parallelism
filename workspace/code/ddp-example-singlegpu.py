@@ -8,10 +8,14 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
+# TODO: add imports for torch.distributed, DistributedSampler,
+#       DistributedDataParallel, init_process_group, 
+#       destroy_process_group, and os for os.environ
 def setup():
+# TODO: get ranks and size, then init_process_group.
     gpu = 0
     device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
-
+# TODO - return local_rank, global_rank, world_size, device
     return gpu, device
 
 class MyTrainDataset(Dataset):
@@ -33,7 +37,7 @@ class Trainer:
         optimizer: torch.optim.Optimizer,
         gpu_id: int,
         device,
-        save_every: int, 
+        save_every: int
     ) -> None:
         self.gpu_id = gpu_id
         self.device = device
@@ -59,7 +63,7 @@ class Trainer:
 
     def _save_checkpoint(self, epoch):
         ckp = self.model.state_dict()
-        PATH = "checkpoint.pt"
+        PATH = "ddp-example/singlegpu-checkpoint.pt"
         torch.save(ckp, PATH)
         print(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
 
@@ -83,7 +87,7 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
         shuffle=True
     )
 
-def main(device, total_epochs, save_every, batch_size):
+def main(save_every, total_epochs, batch_size):
     gpu, device = setup()
     dataset, model, optimizer = load_train_objs()
     train_data = prepare_dataloader(dataset, batch_size)
@@ -97,6 +101,5 @@ if __name__ == "__main__":
     parser.add_argument('save_every', type=int, help='How often to save a snapshot')
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
     args = parser.parse_args()
-    
-    device = 0  # shorthand for cuda:0
-    main(device, args.total_epochs, args.save_every, args.batch_size)
+
+    main(args.save_every, args.total_epochs, args.batch_size)
