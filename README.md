@@ -5,7 +5,7 @@ This set of notebooks gives an overview of how to use several data and model par
 * Distributed data parallelism (DDP), using the torch.nn.parallel.DistributedDataParallel module.
 * Pipeline parallelism, using the torch.distributed.pipeline module.
 * Fully Sharded Data Parallel (FSDP), using the torch.distributed.fsdp module.
-* and to support that, we also discuss torchrun in smod detail.
+* and to support that, we also discuss torchrun in some detail.
 
 The notebooks are designed to be run in an environment where multiple GPUs are available. The distributed examples make by default make use of 3 or 4 GPUs.
 
