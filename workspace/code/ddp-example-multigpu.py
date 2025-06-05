@@ -56,6 +56,9 @@ class Trainer:
         self.train_data = train_data
         self.optimizer = optimizer
         self.save_every = save_every
+        # make sure the model is wrapped in DDP
+        self.model = DDP(self.model, device_ids=[self.gpu_id])
+
 
     def _run_batch(self, source, targets):
         self.optimizer.zero_grad()
