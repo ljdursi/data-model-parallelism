@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 DDP examples from https://github.com/pytorch/examples/tree/main/distributed/ddp-tutorial-series
-Single GPU case
+Single GPU case, slightly tweaked
 """
 
 import torch

@@ -1,3 +1,9 @@
+#/usr/bin/env python3
+"""
+DDP examples from https://github.com/pytorch/examples/tree/main/distributed/ddp-tutorial-series
+Multi-GPU torchrun case
+"""
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
