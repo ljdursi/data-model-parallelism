@@ -3,6 +3,7 @@
 import argparse
 import time
 
+# TODO add os import so we can get at environment variables w/ os.environ.get()
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,6 +11,10 @@ import torch.utils.data as tud
 
 import torchvision
 import torchvision.transforms.v2 as transforms
+
+# TODO add torch DDP import - import as DDP
+
+# TODO import torch distributed as dist for barrier, process_group operations, reductions
 
 # define our model
 class Net(nn.Module):
@@ -108,10 +113,16 @@ def test(model, test_loader, loss_fn, device):
 
     return v_accuracy, v_loss
 
+
 def main(args):
     # define torch device
+    # TODO get LOCAL_RANK with os.environ.get to set the GPU appropriately
     local_rank = 0
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+
+    # TODO - set up process group
+    # you'll need RANK (as the global rank) and WORLD_SIZE to pass init_process_group
+    # and local_rank for device_id
 
     # define the dataset and the transforms we'll apply
     transform = transforms.Compose(
@@ -124,12 +135,14 @@ def main(args):
         ]
     )
 
+    # TODO only need to download data once per node but everyone needs to know information about the dataset
+
     print("Downloading data if needed")
     dataset = torchvision.datasets.EuroSAT(root="./data", download=True, transform=transform)
     classes = ["AnnualCrop", "Forest", "HerbaceousVegetation", "Highway", "Industrial",
                "Pasture", "PermanentCrop", "Residential", "River", "SeaLake"]
     num_classes = len(classes)
-    
+
     # dataset split
     total_count = len(dataset)
     train_count = int(0.6 * total_count)
@@ -138,7 +151,10 @@ def main(args):
     
     train_dataset, valid_dataset, test_dataset = tud.random_split(dataset, (train_count, valid_count, test_count))
 
-    #define loaders
+    # TODO - define train_sampler and test_sampler from tud.distributed.DistributedSampler
+    # remember to specify num_replicas (from WORLD_SIZE) and rank
+    # define loaders
+    # TODO - add a parameter sampler=train_sampler or sampler=test_sampler in place of shuffle=True
     trainloader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True
     )
@@ -149,22 +165,28 @@ def main(args):
 
     # instantiate model
     net = Net(num_classes).to(device)
+
+    # TODO - optional wrap model with nn.SyncBatchNorm.convert_sync_batchnorm to sync the batch norms across microbatches
+    # TODO - wrap model with nn.parallel.DistributedDataParallel.   You'll have to provide device_ids=[local_rank])
     
     # define loss, optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(net.parameters(), lr=args.base_lr, momentum=args.momentum)
 
+    # only need to see this once - just have global rank == 0 print this
+    print(f"Beginning training: {args.epochs} epochs")
     with torch.profiler.profile(
         schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
         on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_singlegpu'),
         profile_memory=True) as prof:
         
-        print(f"Beginning training: {args.epochs} epochs")
         # training loop
         total_time = 0
         for epoch in range(args.epochs):
             running_loss = 0.0
             t0 = time.time()
+
+            # TODO - set the epoch in train_sampler so that the seed is different each time
             for i, data in enumerate(trainloader, 0):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels = data[0].to(device), data[1].to(device)
@@ -179,6 +201,9 @@ def main(args):
                 loss.backward()
                 optimizer.step()
 
+            # TODO - synchronize with barrier at the end of each epoch, or else 
+            # stats will be wrong 
+
             # timing
             epoch_time = time.time() - t0
             total_time += epoch_time
@@ -186,17 +211,28 @@ def main(args):
             # output metrics at the end of each epoch
             images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(device)
             v_accuracy, v_loss = test(net, testloader, criterion, device)
-    
+
+            # the stats we just calculated were per process; we should combine these into one
+            # TODO -for v_accuracy, f_loss, these are already tensors, and we can use
+            # dist.distributed.all_reduce(..., op=dist.ReduceOp.AVG) to average these
+            # for images_per_sec we can just add them (op=dist.ReduceOp.SUM)
+
+            # TODO - We don't need to see this line for each process (especially now that we've combined the results)
+            # Just have rank 0 print this out
             print(
                 f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
             )
 
             prof.step()
 
+    # TODO - we don't need to have all ranks print this
     print("Finished Training")
     
+    # TODO - we should only have one rank save the model
     save_path = "./eurosat_net.pth"
     torch.save(net.state_dict(), save_path)
+
+    # TODO - get rid of the process group
 
 
 if __name__ == "__main__":

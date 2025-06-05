@@ -3,7 +3,7 @@
 import argparse
 import time
 
-#add os import so we can get at environment variables w/ os.environ.get()
+# add os import so we can get at environment variables w/ os.environ.get()
 import os
 
 import torch
@@ -121,7 +121,7 @@ def test(model, test_loader, loss_fn, device):
 
 def main(args):
     # define torch device
-    # use LOCAL_RANK in os.environ to set the GPU appropriately
+    # get LOCAL_RANK with os.environ.get to set the GPU appropriately
     local_rank = int(os.environ.get("LOCAL_RANK", default="0"))
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
@@ -237,9 +237,7 @@ def main(args):
             total_time += epoch_time
 
             # output metrics at the end of each epoch
-            images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(
-                device
-            )
+            images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(device)
             v_accuracy, v_loss = test(net, testloader, criterion, device)
 
             # the stats we just calculated were per process; we should combine these into one
@@ -273,7 +271,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='EuroSAT training example',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--batch-size', type=int, default=8, help='input batch size for training')
+    parser.add_argument('--batch-size', type=int, default=32, help='input batch size for training')
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train')
     parser.add_argument('--base-lr', type=float, default=0.01, help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
