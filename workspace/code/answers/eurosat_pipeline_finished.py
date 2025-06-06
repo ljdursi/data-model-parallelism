@@ -12,6 +12,8 @@ from torch.distributed.pipelining import pipeline, SplitPoint, ScheduleGPipe, Pi
 import torchvision
 import torchvision.transforms.v2 as transforms
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
 # define our model
 class Net(nn.Module):
     def __init__(self, num_classes=10):
@@ -235,52 +237,54 @@ def main(args):
 
     if rank == 0:
         print(f"Beginning training: {args.epochs} epochs")
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                 on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_pipeline'),
+                 profile_memory=True) as prof:
+        # training loop
+        total_time = 0
+        local_loss = 0
+        nlosses = 0
+        for epoch in range(args.epochs):
+            running_loss = 0.0
+            t0 = time.time()
+            optimizer.zero_grad()
 
-    # training loop
-    total_time = 0
-    local_loss = 0
-    nlosses = 0
-    for epoch in range(args.epochs):
-        running_loss = 0.0
-        t0 = time.time()
-        optimizer.zero_grad()
+            for i, data in enumerate(trainloader, 0):
+                inputs, labels = data[0], data[1]
+                if rank == 0:
+                    inputs = inputs.to(device)
+                elif rank == world_size - 1:
+                    labels = labels.to(device)
 
-        for i, data in enumerate(trainloader, 0):
-            inputs, labels = data[0], data[1]
-            if rank == 0:
-                inputs = inputs.to(device)
-            elif rank == world_size - 1:
-                labels = labels.to(device)
+                # Forward + backward + optimize using the pipeline schedule
+                # Only rank 0 provides the input data
+                if rank == 0:
+                    train_schedule.step(inputs)
+                elif rank == world_size - 1:
+                    losses = []
+                    train_schedule.step(target=labels, losses=losses)
+                    local_loss=sum(losses).item()
+                    running_loss += local_loss
+                    nlosses += 1
+                else:
+                    train_schedule.step()
 
-            # Forward + backward + optimize using the pipeline schedule
-            # Only rank 0 provides the input data
-            if rank == 0:
-                train_schedule.step(inputs)
-            elif rank == world_size - 1:
-                losses = []
-                train_schedule.step(target=labels, losses=losses)
-                local_loss=sum(losses).item()
-                running_loss += local_loss
-                nlosses += 1
-            else:
-                train_schedule.step()
+                            
+            # Zero the parameter gradients for the current stage's optimizer
+            optimizer.step()
 
-                        
-        # Zero the parameter gradients for the current stage's optimizer
-        optimizer.step()
+            # Timing
+            dist.barrier()
+            epoch_time = time.time() - t0
+            total_time += epoch_time
 
-        # Timing
-        dist.barrier()
-        epoch_time = time.time() - t0
-        total_time += epoch_time
-
-        v_accuracy, v_loss = test(net, testloader, device, rank, world_size, args.chunks, test_schedule, test_stage)
-        if rank == world_size - 1:
-            images_per_sec = len(trainloader) * args.batch_size / epoch_time
-            train_loss = running_loss/nlosses
-            print(
-                f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train loss = {train_loss:5.3f} Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
-            )
+            v_accuracy, v_loss = test(net, testloader, device, rank, world_size, args.chunks, test_schedule, test_stage)
+            if rank == world_size - 1:
+                images_per_sec = len(trainloader) * args.batch_size / epoch_time
+                train_loss = running_loss/nlosses
+                print(
+                    f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train loss = {train_loss:5.3f} Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
+                )
 
     if rank == 0:
         print("Finished Training")

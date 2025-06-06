@@ -14,6 +14,8 @@ import torch.utils.data as tud
 import torchvision
 import torchvision.transforms.v2 as transforms
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
 # add torch DDP import - import as DDP
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -200,11 +202,9 @@ def main(args):
     if global_rank == 0:
         print(f"Beginning training: {args.epochs} epochs")
 
-    with torch.profiler.profile(
-        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_ddp'),
-        profile_memory=True) as prof:
-        
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                 on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_ddp_multigpu'),
+                 profile_memory=True) as prof:
         # training loop
         total_time = 0
         for epoch in range(args.epochs):

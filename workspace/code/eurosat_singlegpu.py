@@ -11,6 +11,8 @@ import torch.utils.data as tud
 import torchvision
 import torchvision.transforms.v2 as transforms
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
 # define our model
 class Net(nn.Module):
     def __init__(self, num_classes=10):
@@ -156,11 +158,9 @@ def main(args):
 
     # only need to see this once - just have global rank == 0 print this
     print(f"Beginning training: {args.epochs} epochs")
-    with torch.profiler.profile(
-        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_singlegpu'),
-        profile_memory=True) as prof:
-        
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                 on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_singlegpu'),
+                 profile_memory=True) as prof:
         # training loop
         total_time = 0
         for epoch in range(args.epochs):

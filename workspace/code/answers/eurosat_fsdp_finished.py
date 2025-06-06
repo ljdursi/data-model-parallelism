@@ -10,6 +10,8 @@ import argparse, time, os
 import torch, torch.nn as nn, torch.optim as optim, torch.utils.data as tud
 import torchvision, torchvision.transforms.v2 as transforms
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy, OffloadPolicy
@@ -119,30 +121,33 @@ def main(args):
     loss_fn   = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
-    for epoch in range(args.epochs):
-        model.train()
-        train_sampler.set_epoch(epoch)       # shuffle per epoch
-        t0, running = time.time(), 0.0
-        for i, (imgs, labels) in enumerate(train_loader):
-            imgs, labels = imgs.to(device), labels.to(device)
-            optimizer.zero_grad(set_to_none=True)
-            out = model(imgs)
-            loss = loss_fn(out, labels)
-            loss.backward()
-            optimizer.step()
-            running += loss.item()
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                 on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_fsdp'),
+                 profile_memory=True) as prof:
+        for epoch in range(args.epochs):
+            model.train()
+            train_sampler.set_epoch(epoch)       # shuffle per epoch
+            t0, running = time.time(), 0.0
+            for i, (imgs, labels) in enumerate(train_loader):
+                imgs, labels = imgs.to(device), labels.to(device)
+                optimizer.zero_grad(set_to_none=True)
+                out = model(imgs)
+                loss = loss_fn(out, labels)
+                loss.backward()
+                optimizer.step()
+                running += loss.item()
 
-        # simple metrics (rank‑0)
-        dist.barrier()
+            # simple metrics (rank‑0)
+            dist.barrier()
+            if rank == 0:
+                acc, vloss = test(model, val_loader, loss_fn, device)
+                imgs_sec = (len(train_loader.dataset) / (time.time() - t0))
+                print(f"[epoch {epoch:2d}] loss {running/len(train_loader):.4f}  "
+                    f"val‑loss {vloss:.4f}  val‑acc {acc:.4f}  imgs/s {imgs_sec:.1f}")
+
         if rank == 0:
-            acc, vloss = test(model, val_loader, loss_fn, device)
-            imgs_sec = (len(train_loader.dataset) / (time.time() - t0))
-            print(f"[epoch {epoch:2d}] loss {running/len(train_loader):.4f}  "
-                  f"val‑loss {vloss:.4f}  val‑acc {acc:.4f}  imgs/s {imgs_sec:.1f}")
-
-    if rank == 0:
-        torch.save(model.state_dict(), "eurosat_fsdp2.pth")
-        print("Checkpoint saved to eurosat_fsdp2.pth")
+            torch.save(model.state_dict(), "eurosat_fsdp2.pth")
+            print("Checkpoint saved to eurosat_fsdp2.pth")
 
     dist.barrier()            # wait so rank‑0 doesn’t exit early
     dist.destroy_process_group()
