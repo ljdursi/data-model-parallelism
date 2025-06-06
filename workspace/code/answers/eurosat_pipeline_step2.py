@@ -178,11 +178,11 @@ def main(args):
  
     # DONE - add a parameter sampler=train_sampler or sampler=test_sampler in place of shuffle=True
     trainloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=2, drop_last=True
+        train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=8, drop_last=True
     )
     
     testloader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, sampler=test_sampler, num_workers=2, drop_last=True
+        test_dataset, batch_size=args.batch_size, sampler=test_sampler, num_workers=8, drop_last=True
     )
 
     # instantiate model

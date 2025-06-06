@@ -88,9 +88,9 @@ def main(args):
     # Distributed data loading
     train_sampler = tud.distributed.DistributedSampler(train_set)
     train_loader  = tud.DataLoader(train_set, batch_size=args.batch_size,
-                                   sampler=train_sampler, num_workers=2, pin_memory=True)
+                                   sampler=train_sampler, num_workers=8, pin_memory=True)
     val_loader    = tud.DataLoader(val_set, batch_size=args.batch_size,
-                                   shuffle=False, num_workers=2, pin_memory=True)
+                                   shuffle=False, num_workers=8, pin_memory=True)
 
     model = Net(num_classes=10).to(device)
 

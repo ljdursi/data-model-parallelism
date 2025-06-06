@@ -140,11 +140,11 @@ def main(args):
     train_dataset, valid_dataset, test_dataset = tud.random_split(dataset, (train_count, valid_count, test_count))
 
     trainloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True
+        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True
     )
     
     testloader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True
+        test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True
     )
 
     # instantiate model

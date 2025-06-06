@@ -179,11 +179,11 @@ def main(args):
 
     # define loaders
     trainloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True
+        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True
     )
 
     testloader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True
+        test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True
     )
 
     # Instantiate the model
