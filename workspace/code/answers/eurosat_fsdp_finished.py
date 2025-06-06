@@ -145,6 +145,8 @@ def main(args):
                 print(f"[epoch {epoch:2d}] loss {running/len(train_loader):.4f}  "
                     f"val‑loss {vloss:.4f}  val‑acc {acc:.4f}  imgs/s {imgs_sec:.1f}")
 
+            prof.step()
+
         if rank == 0:
             torch.save(model.state_dict(), "eurosat_fsdp2.pth")
             print("Checkpoint saved to eurosat_fsdp2.pth")

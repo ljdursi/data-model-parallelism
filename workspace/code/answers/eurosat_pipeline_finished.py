@@ -240,6 +240,8 @@ def main(args):
                     f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train loss = {train_loss:5.3f} Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
                 )
 
+            prof.step()
+
     if rank == 0:
         print("Finished Training")
 
