@@ -6,9 +6,13 @@ Multi-gpu example
 """
 import torch
 import torch.nn as nn
-from dataclasses import dataclass
 
+# TODO - import os for os.environ
 import os
+
+# import torch.distributed,
+# and pipeline, SplitPoint, and ScheduleGPipe from
+# torch.distributed.pipelining
 import torch.distributed as dist
 from torch.distributed.pipelining import pipeline, SplitPoint, ScheduleGPipe
 
@@ -39,6 +43,9 @@ class Transformer(nn.Module):
       output = self.output(h).clone() if self.output else h
       return output
 
+# get local_rank, rank, world_size,
+# and init the process group
+# return all + device
 def init_distributed():
    local_rank = int(os.environ.get("LOCAL_RANK", 0))
    rank = int(os.environ.get("RANK", 0))
@@ -55,11 +62,15 @@ def cleanup():
 if __name__ == "__main__":
     local_rank, rank, world_size, device = init_distributed()
     num_microbatches = 4
+    batch_size = 32
+    seq_len = 500
     model = Transformer(vocab_size=vocab_size)
 
-    # Dummy data to prime the pipeline, to create the job graph
-    x = torch.ones(32, 500, dtype=torch.long)
-    y = torch.randint(0, vocab_size, (32, 500), dtype=torch.long)
+    # batch-sized dummy data
+    x = torch.ones(batch_size, seq_len, dtype=torch.long)
+    y = torch.randint(0, vocab_size, (batch_size, seq_len), dtype=torch.long)
+
+    # example data (microbatch-sized) to prime the pipeline, to create the job graph
     example_input_microbatch = x.chunk(num_microbatches)[0]
 
     # manually split the graph 
@@ -67,9 +78,12 @@ if __name__ == "__main__":
     pipe = pipeline(model, mb_args=(example_input_microbatch,), split_spec=split_spec)
     stage = pipe.build_stage(rank, device, dist.group.WORLD)
 
-    model.to(device)
-    x = x.to(device)
-    y = y.to(device)
+    # only move data to the device if it's used on that device
+    # (e.g. inputs on rank 0, outputs on rank 1)
+    if rank == 0:
+        x = x.to(device)
+    elif rank == 1:
+        y = y.to(device)
 
     def tokenwise_loss_fn(outputs, targets):
        loss_fn = nn.CrossEntropyLoss()
@@ -80,18 +94,21 @@ if __name__ == "__main__":
     lr = 0.1
     momentum = 0.8
 
+    # add a ScheduleGPipe scheduler
     schedule = ScheduleGPipe(stage, n_microbatches=num_microbatches, loss_fn=tokenwise_loss_fn)
+    # optimizer only applies to stage.submod parameters
     optimizer = optim.SGD(stage.submod.parameters(), lr=lr, momentum=momentum)
     
-    for epoch in range(5):
+    for epoch in range(2):
         optimizer.zero_grad()
         if rank == 0:
            schedule.step(x)
         elif rank == 1:
            losses = []
            output = schedule.step(target=y, losses=losses)
-           print(f"epoch: {epoch} losses: {sum(losses)}")
+           print(f"epoch: {epoch} losses: {torch.mean(losses)}")
 
         optimizer.step()
        
+    # destroy the process group
     cleanup()
