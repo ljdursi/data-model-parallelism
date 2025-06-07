@@ -232,12 +232,11 @@ def main(args):
             epoch_time = time.time() - t0
             total_time += epoch_time
 
-            v_accuracy, v_loss = test(net, testloader, device, rank, world_size, args.chunks, test_schedule, test_stage)
             if rank == world_size - 1:
                 images_per_sec = len(trainloader) * args.batch_size / epoch_time
                 train_loss = running_loss/nlosses
                 print(
-                    f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train loss = {train_loss:5.3f} Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
+                    f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train loss = {train_loss:5.3f}"
                 )
 
             prof.step()
