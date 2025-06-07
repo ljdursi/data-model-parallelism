@@ -133,13 +133,10 @@ def main(args):
 
     train_dataset, valid_dataset, test_dataset = tud.random_split(dataset, (train_count, valid_count, test_count))
 
-    # define loaders
+    # make sure drop_last is true in the data loader, so that there's no partial
+    # microbatches; this would mess up the schedule
     trainloader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True
-    )
-
-    testloader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True
     )
 
     # Instantiate the model

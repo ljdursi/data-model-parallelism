@@ -66,6 +66,9 @@ if __name__ == "__main__":
     seq_len = 500
     model = Transformer(vocab_size=vocab_size)
 
+    if rank == 0:
+        print(model)
+
     # batch-sized dummy data
     x = torch.ones(batch_size, seq_len, dtype=torch.long)
     y = torch.randint(0, vocab_size, (batch_size, seq_len), dtype=torch.long)
