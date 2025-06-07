@@ -78,6 +78,9 @@ if __name__ == "__main__":
     pipe = pipeline(model, mb_args=(example_input_microbatch,), split_spec=split_spec)
     stage = pipe.build_stage(rank, device, dist.group.WORLD)
 
+    if rank == 0:
+      print(pipe)
+
     # only move data to the device if it's used on that device
     # (e.g. inputs on rank 0, outputs on rank 1)
     if rank == 0:
