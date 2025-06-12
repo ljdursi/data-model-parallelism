@@ -124,7 +124,7 @@ def main(args):
     
     train_dataset, valid_dataset, test_dataset = tud.random_split(dataset, (train_count, valid_count, test_count))
 
-    # TODO - make sure drop_last is true in the data loader, so that there's no partial
+    # TODO - Step 3 - make sure drop_last is true in the data loader, so that there's no partial
     # microbatches; this would mess up the schedule
     trainloader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8
@@ -136,13 +136,13 @@ def main(args):
     # TODO Step 1 - only have the 0th global rank print this out
     print(f"{local_rank}: creating pipeline")
 
-    # TODO - Define the pipeline parallelism
+    # TODO - Step 2 - Define the pipeline parallelism
     # First, define example input for pipeline graph analysis
     # use torch.randn
     # Assuming input images are 2x64x64,
     # and there's the microbatch size is args.batch_size // args.chunks
 
-    # TODO - Now, create the split spec to split the model into three stages:
+    # TODO - Step 2 - Now, create the split spec to split the model into three stages:
     # Stage 0: conv_block1
     # Stage 1: conv_block2
     # Stage 2: conv_block3 -> global_avg_pool -> classifier
@@ -150,24 +150,24 @@ def main(args):
     # automatically.  If you use SplitPoint.END, the final
     # split point can be implicit
 
-    # TODO - Now, create the pipeline with the model,
+    # TODO - Step 2 - Now, create the pipeline with the model,
     # mb_args=(example_input,) and split_spec
 
-    # TODO - now build the pipeline stage using the .build_stage method
+    # TODO - Step 2 - now build the pipeline stage using the .build_stage method
     # on the pipe object above
 
     # define loss
     criterion = nn.CrossEntropyLoss()
 
     # define optimizer
-    # TODO - optimzier should only optimize parameters on the current stage
+    # TODO - Step 2-  optimzier should only optimize parameters on the current stage
     # e.g. stage.submod.parameters(), not net.parameters()
     optimizer = optim.SGD(net.parameters(), lr=args.base_lr, momentum=args.momentum)
 
     # TODO - create a schedule using ScheduleGPipe on this stage, defining the number of microbatches
     # per iteration and the loss function
 
-    # TODO step 1 - only need to see this once - just have global rank == 0 print this
+    # TODO Step 1 - only need to see this once - just have global rank == 0 print this
     print(f"Beginning training: {args.epochs} epochs")
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                  on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_pipeline_singlegpu'),
@@ -213,14 +213,14 @@ def main(args):
 
             prof.step()
 
-    # TODO - step 1 - only need htis printed out once
+    # TODO - Step 1 - only need htis printed out once
     print("Finished Training")
     
-    # TODO - replace with torch.distributed.checkpoint
+    # TODO - Step 2 - replace with torch.distributed.checkpoint
     save_path = "./eurosat_net.pth"
     torch.save(net.state_dict(), save_path)
 
-    # TODO - step 1 - destroy process group
+    # TODO - Step 1 - destroy process group
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='EuroSAT training example',
