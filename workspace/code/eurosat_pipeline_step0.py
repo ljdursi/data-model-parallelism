@@ -13,9 +13,10 @@ import torchvision.transforms.v2 as transforms
 
 from torch.profiler import profile, record_function, ProfilerActivity
 
-# import torch.utils.data, torch.distributed, 
+# TODO - Step 1 import torch.utils.data, torch.distributed, 
 # and pipeline, SplitPoint, ScheduleGPipe, and PipelineStage
 # from torch.distributed.pipelining
+# import checkpoint from torch.distributed
 
 # define our model
 class Net(nn.Module):
@@ -88,12 +89,12 @@ class Net(nn.Module):
         return x
 
 def main(args):
-    # TODO - Initialize distributed environment
+    # TODO - Step 1 Initialize distributed environment
     # get rank, local_rank, world_size
     local_rank = 0
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
-    # TODO - init process group, use nccl as the backend
+    # TODO - Step 1 init process group, use nccl as the backend
 
     # define the dataset and the transforms we'll apply
     transform = transforms.Compose(
@@ -106,7 +107,7 @@ def main(args):
         ]
     )
 
-    # TODO - only have rank 0 download the data
+    # TODO - Step 1 only have rank 0 download the data
     # use barrier to wait for download then other ranks get metadata
     print("Downloading data if needed")
     dataset = torchvision.datasets.EuroSAT(root="./data", download=True, transform=transform)
@@ -132,7 +133,8 @@ def main(args):
     # instantiate model
     net = Net(num_classes).to(device)
 
-    print(f"{rank}: creating pipeline")
+    # TODO Step 1 - only have the 0th global rank print this out
+    print(f"{local_rank}: creating pipeline")
 
     # TODO - Define the pipeline parallelism
     # First, define example input for pipeline graph analysis
@@ -165,18 +167,19 @@ def main(args):
     # TODO - create a schedule using ScheduleGPipe on this stage, defining the number of microbatches
     # per iteration and the loss function
 
-    # TODO - only need to see this once - just have global rank == 0 print this
+    # TODO step 1 - only need to see this once - just have global rank == 0 print this
     print(f"Beginning training: {args.epochs} epochs")
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                  on_trace_ready=torch.profiler.tensorboard_trace_handler('/workspace/logs/eurosat_pipeline_singlegpu'),
                  profile_memory=True) as prof:
         # training loop
         total_time = 0
+        nlosses = 0
         for epoch in range(args.epochs):
             running_loss = 0.0
             t0 = time.time()
+            optimizer.zero_grad()
 
-            # TODO - set the epoch in train_sampler so that the seed is different each time
             for i, data in enumerate(trainloader, 0):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels = data[0].to(device), data[1].to(device)
@@ -189,28 +192,35 @@ def main(args):
 
                 loss = criterion(outputs, labels)
                 loss.backward()
+                running_loss += sum(loss).item()
+
                 optimizer.step()
+                nlosses += 1
 
             # timing
+            # TODO - Step 1 add a barrier so all ranks are done
             epoch_time = time.time() - t0
             total_time += epoch_time
 
+            # TODO - Step 1 - only have _last_ rank calculate these and print them out
             # output metrics at the end of each epoch
             images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(device)
-            v_accuracy, v_loss = test(net, testloader, criterion, device)
+            train_loss = running_loss/nlosses
 
             print(
-                f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Validation Loss = {v_loss:5.3f}, Validation Accuracy = {v_accuracy:5.3f}"
+                f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train Loss = {train_loss:5.3f}"
             )
 
             prof.step()
 
+    # TODO - step 1 - only need htis printed out once
     print("Finished Training")
     
     # TODO - replace with torch.distributed.checkpoint
     save_path = "./eurosat_net.pth"
     torch.save(net.state_dict(), save_path)
 
+    # TODO - step 1 - destroy process group
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='EuroSAT training example',
@@ -219,6 +229,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train')
     parser.add_argument('--base-lr', type=float, default=0.01, help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+    parser.add_argument('--chunks', type=int, default=4, help='number of micro-batches (chunks) per mini-batch')
     args = parser.parse_args()
 
     main(args)

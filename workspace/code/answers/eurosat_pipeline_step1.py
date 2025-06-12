@@ -138,7 +138,7 @@ def main(args):
     # make sure drop_last is true in the data loader, so that there's no partial
     # microbatches; this would mess up the schedule
     trainloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, drop_last=True
+        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8
     )
 
     # Instantiate the model
@@ -148,47 +148,36 @@ def main(args):
     if rank == 0:
         print(f"{rank}: creating pipeline")
 
-    # Define the pipeline parallelism
+    # TODO - Define the pipeline parallelism
     # First, define example input for pipeline graph analysis
     # use torch.randn
     # Assuming input images are 2x64x64,
     # and there's the microbatch size is args.batch_size // args.chunks
-    example_input = torch.randn(args.batch_size // args.chunks, 2, 64, 64, device=device)
 
-    # Now, create the split spec to split the model into three stages:
+    # TODO - Now, create the split spec to split the model into three stages:
     # Stage 0: conv_block1
     # Stage 1: conv_block2
     # Stage 2: conv_block3 -> global_avg_pool -> classifier
-    # use the pipeline and SplitPoint functionality to split 
+    # use the the SplitPoint functionality to split 
     # automatically.  If you use SplitPoint.END, the final
     # split point can be implicit
-    split_spec = {
-        "conv_block1": SplitPoint.END,
-        "conv_block2": SplitPoint.END,
-        # The third split point is implicit after conv_block3,
-        # meaning conv_block3, global_avg_pool, and classifier
-        # will be in the last stage.
-    }
 
-    # Now, create the pipeline with the model,
+    # TODO - Now, create the pipeline with the model,
     # mb_args=(example_input,) and split_spec
-    pipe = pipeline(net, mb_args=(example_input,), split_spec=split_spec)
 
-    # now build the pipeline stage using the .build_stage method
+    # TODO - now build the pipeline stage using the .build_stage method
     # on the pipe object above
-    stage = pipe.build_stage(rank, device, dist.group.WORLD)
 
     # define loss
     criterion = nn.CrossEntropyLoss()
 
     # define optimizer
-    # optimzier should only optimize parameters on the current stage
+    # TODO - optimzier should only optimize parameters on the current stage
     # e.g. stage.submod.parameters(), not net.parameters()
-    optimizer = optim.SGD(stage.submod.parameters(), lr=args.base_lr, momentum=args.momentum)
+    optimizer = optim.SGD(net.parameters(), lr=args.base_lr, momentum=args.momentum)
 
-   # create a schedule using ScheduleGPipe on this stage, defining the number of microbatches
-   # per iteration and the loss function
-    train_schedule = ScheduleGPipe(stage, n_microbatches=args.chunks, loss_fn=criterion)
+    # create a schedule using ScheduleGPipe on this stage, defining the number of microbatches
+    # per iteration and the loss function
 
     if rank == 0:
         print(f"Beginning training: {args.epochs} epochs")
@@ -197,7 +186,6 @@ def main(args):
                  profile_memory=True) as prof:
         # training loop
         total_time = 0
-        local_loss = 0
         nlosses = 0
         for epoch in range(args.epochs):
             running_loss = 0.0
@@ -205,39 +193,36 @@ def main(args):
             optimizer.zero_grad()
 
             for i, data in enumerate(trainloader, 0):
-                inputs, labels = data[0], data[1]
-                if rank == 0:
-                    inputs = inputs.to(device)
-                elif rank == world_size - 1:
-                    labels = labels.to(device)
+                # get the inputs; data is a list of [inputs, labels]
+                inputs, labels = data[0].to(device), data[1].to(device)
 
-                # Forward + backward + optimize using the pipeline schedule
-                # Only rank 0 provides the input data
-                if rank == 0:
-                    train_schedule.step(inputs)
-                elif rank == world_size - 1:
-                    losses = []
-                    train_schedule.step(target=labels, losses=losses)
-                    local_loss=sum(losses).item()
-                    running_loss += local_loss
-                    nlosses += 1
-                else:
-                    train_schedule.step()
+                # zero the parameter gradients
+                optimizer.zero_grad()
 
-                            
-            # Zero the parameter gradients for the current stage's optimizer
-            optimizer.step()
+                # forward + backward + optimize
+                outputs = net(inputs)
 
-            # Timing
+                loss = criterion(outputs, labels)
+                loss.backward()
+                running_loss += sum(loss).item()
+
+                optimizer.step()
+                nlosses += 1
+
+            # timing
+            # add a barrier so all ranks are done
             dist.barrier()
             epoch_time = time.time() - t0
             total_time += epoch_time
 
+            # TODO - Step 1 - only have _last_ rank calculate these and print them out
+            # output metrics at the end of each epoch
             if rank == world_size - 1:
-                images_per_sec = len(trainloader) * args.batch_size / epoch_time
+                images_per_sec = torch.tensor(len(trainloader) * args.batch_size / epoch_time).to(device)
                 train_loss = running_loss/nlosses
+
                 print(
-                    f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train loss = {train_loss:5.3f}"
+                    f"Epoch = {epoch:2d}: Cumulative Time = {total_time:5.3f}, Epoch Time = {epoch_time:5.3f}, Images/sec = {images_per_sec:5.3f}, Train Loss = {train_loss:5.3f}"
                 )
 
             prof.step()
@@ -246,10 +231,10 @@ def main(args):
         print("Finished Training")
     
     # replace with torch.distributed.checkpoint
-    ckpt_dir = "pipeline"
-    writer = dcp.FileSystemWriter(ckpt_dir)
-    dcp.save({"stage": stage.submod}, storage_writer=writer)
+    save_path = "./eurosat_net.pth"
+    torch.save(net.state_dict(), save_path)
 
+    #  destroy process group
     dist.destroy_process_group()
 
 
