@@ -207,6 +207,7 @@ def main(args):
 
     print("Finished Training")
     
+    # TODO - replace with torch.distributed.checkpoint
     save_path = "./eurosat_net.pth"
     torch.save(net.state_dict(), save_path)
 
