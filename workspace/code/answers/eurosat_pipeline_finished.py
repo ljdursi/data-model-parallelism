@@ -14,11 +14,13 @@ import torchvision.transforms.v2 as transforms
 from torch.profiler import profile, record_function, ProfilerActivity
 
 # import torch.utils.data, torch.distributed, 
-# and pipeline, SplitPoint, ScheduleGPipe, and PipelineStage
+# and pipeline, SplitPoint, ScheduleGPipe
 # from torch.distributed.pipelining
 import torch.utils.data as tud
 import torch.distributed as dist
-from torch.distributed.pipelining import pipeline, SplitPoint, ScheduleGPipe, PipelineStage
+from torch.distributed.pipelining import pipeline, SplitPoint, ScheduleGPipe
+# import checkpoint from torch.distributed
+import torch.distributed.checkpoint as dcp
 
 # define our model
 class Net(nn.Module):
@@ -240,6 +242,11 @@ def main(args):
 
     if rank == 0:
         print("Finished Training")
+    
+    # replace with torch.distributed.checkpoint
+    ckpt_dir = "pipeline"
+    writer = dcp.FileSystemWriter(ckpt_dir)
+    dcp.save({"stage": stage.submod}, storage_writer=writer)
 
     dist.destroy_process_group()
 

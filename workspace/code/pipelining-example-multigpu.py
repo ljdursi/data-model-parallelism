@@ -15,6 +15,8 @@ import os
 # torch.distributed.pipelining
 import torch.distributed as dist
 from torch.distributed.pipelining import pipeline, SplitPoint, ScheduleGPipe
+# import checkpoint from torch.distributed
+import torch.distributed.checkpoint as dcp
 
 import torch.optim as optim
 
@@ -115,6 +117,11 @@ if __name__ == "__main__":
            print(f"epoch: {epoch} losses: {torch.mean(losses)}")
 
         optimizer.step()
-       
+
+    ckpt_dir = "pipeline"
+    writer = dcp.FileSystemWriter(ckpt_dir)
+    dcp.save({"stage": stage.submod},
+             storage_writer=writer)
+
     # destroy the process group
     cleanup()

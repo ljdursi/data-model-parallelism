@@ -12,6 +12,7 @@ import torch.nn as nn
 # TODO - import torch.distributed,
 # and pipeline, SplitPoint, and ScheduleGPipe from
 # torch.distributed.pipelining
+# TODO - import checkpoint from torch.distributed
 
 import torch.optim as optim
 
@@ -103,4 +104,8 @@ if __name__ == "__main__":
 
         optimizer.step()
        
+    # TODO - save just the stage
+    chkpt_dir='pipeline'
+    torch.save(model.state_dict(), chkpt_dir+"/example-single-model.pt") 
+
     cleanup()
