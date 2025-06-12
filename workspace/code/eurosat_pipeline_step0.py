@@ -160,11 +160,11 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
 
     # define optimizer
-    # TODO - Step 2-  optimzier should only optimize parameters on the current stage
+    # TODO - Step 2 -  optimzier should only optimize parameters on the current stage
     # e.g. stage.submod.parameters(), not net.parameters()
     optimizer = optim.SGD(net.parameters(), lr=args.base_lr, momentum=args.momentum)
 
-    # TODO - create a schedule using ScheduleGPipe on this stage, defining the number of microbatches
+    # TODO - Step 3 - create a schedule using ScheduleGPipe on this stage, defining the number of microbatches
     # per iteration and the loss function
 
     # TODO Step 1 - only need to see this once - just have global rank == 0 print this
@@ -181,7 +181,8 @@ def main(args):
             optimizer.zero_grad()
 
             for i, data in enumerate(trainloader, 0):
-                # get the inputs; data is a list of [inputs, labels]
+                # TODO - Step 3 - Inputs only need to be on-device on rank 0,
+                # and labels on rank world_size - 1
                 inputs, labels = data[0].to(device), data[1].to(device)
 
                 # zero the parameter gradients
