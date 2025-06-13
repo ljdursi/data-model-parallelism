@@ -21,7 +21,6 @@ import torchvision.transforms.v2 as transforms
 from torch.profiler import profile, ProfilerActivity
 
 import torch.distributed as dist
-from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy, OffloadPolicy
 
 # define our model
@@ -160,14 +159,14 @@ def main(args):
     # mp = MixedPrecisionPolicy(param_dtype=torch.bfloat16,
     #                           reduce_dtype=torch.float32,
     #                           output_dtype=torch.float32)
-    # model = fully_shard(model, mesh=mesh, mp_policy=mp)
+    # model = fully_shard(model, mp_policy=mp)
 
     # (B) CPU offload of parameters/optimizer state
     # offload = OffloadPolicy()        # default: offload everything to CPU
-    # model = fully_shard(model, mesh=mesh, offload_policy=offload)
+    # model = fully_shard(model, offload_policy=offload)
 
     # (C) Gradient‑only sharding (keep params gathered for forward/backward)
-    # model = fully_shard(model, mesh=mesh, reshard_after_forward=False)
+    # model = fully_shard(model, reshard_after_forward=False)
 
     # ---------------------------------------------------------------------------
 
