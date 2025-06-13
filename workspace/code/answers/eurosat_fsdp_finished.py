@@ -132,10 +132,10 @@ def main(args):
     ])
 
     if local_rank == 0:
-        dataset = torchvision.datasets.EuroSAT(root="./data", download=True, transform=tfm)
+        dataset = torchvision.datasets.EuroSAT(root="./data", download=True, transform=transform)
     dist.barrier()
     if local_rank != 0:
-        dataset = torchvision.datasets.EuroSAT(root="./data", download=False, transform=tfm)
+        dataset = torchvision.datasets.EuroSAT(root="./data", download=False, transform=transform)
 
     n = len(dataset); n_train, n_val = int(0.6*n), int(0.2*n)
     train_set, val_set, _ = tud.random_split(dataset, [n_train, n_val, n-n_train-n_val])
@@ -150,8 +150,6 @@ def main(args):
     model = Net(num_classes=10).to(device)
 
     # **Minimal FSDP‑v2** : shard the *entire* model
-    for layer in model.layers:
-        fully_shard(layer)
     fully_shard(model)                                       # :contentReference[oaicite:0]{index=0}
 
     # --- OPTIONAL ADVANCED TOGGLES (uncomment to demo) --------------------------
@@ -191,6 +189,7 @@ def main(args):
 
             # simple metrics (rank‑0)
             dist.barrier()
+            epoch_time = time.time() - t0
             images_per_sec = torch.tensor(len(train_loader) * args.batch_size / epoch_time).to(device)
             acc, vloss = test(model, val_loader, loss_fn, device)
             dist.all_reduce(acc, op=dist.ReduceOp.AVG)
