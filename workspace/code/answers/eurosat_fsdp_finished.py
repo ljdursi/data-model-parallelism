@@ -1,59 +1,111 @@
 #!/usr/bin/env python3
 """
-Example: EuroSAT on multiple GPUs with PyTorch FSDP‑v2 (`fully_shard`).
+Example: EuroSAT step 0 for FSDP lab
 
 Launch with:
-  torchrun --standalone --nproc_per_node=<GPUS> fsdp2_train.py [...]
+  ./code/run_w_torchrun.sh 2 ./code/eurosat_fsdp_step0.py
 """
 
-import argparse, time, os
-import torch, torch.nn as nn, torch.optim as optim, torch.utils.data as tud
-import torchvision, torchvision.transforms.v2 as transforms
+import argparse
+import time
+import os
 
-from torch.profiler import profile, record_function, ProfilerActivity
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.utils.data as tud
+
+import torchvision
+import torchvision.transforms.v2 as transforms
+
+from torch.profiler import profile, ProfilerActivity
 
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy, OffloadPolicy
 
+# define our model
 class Net(nn.Module):
-    def __init__(self, num_classes: int = 10):
+    def __init__(self, num_classes=10):
         super().__init__()
+
         self.conv_block1 = nn.Sequential(
-            nn.Conv2d(3, 32, 3, 1, 1), nn.BatchNorm2d(32), nn.ReLU(),
-            nn.Conv2d(32, 32, 3, 1, 1), nn.BatchNorm2d(32), nn.ReLU(),
-            nn.MaxPool2d(2, 2)
+            nn.Conv2d(
+                in_channels=3, out_channels=32, kernel_size=3, padding=1, stride=1
+            ),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=32, out_channels=32, kernel_size=3, padding=1, stride=1
+            ),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # 64x64 -> 32x32
         )
+
         self.conv_block2 = nn.Sequential(
-            nn.Conv2d(32, 64, 3, 1, 1), nn.BatchNorm2d(64), nn.ReLU(),
-            nn.Conv2d(64, 64, 3, 1, 1), nn.BatchNorm2d(64), nn.ReLU(),
-            nn.MaxPool2d(2, 2)
+            nn.Conv2d(
+                in_channels=32, out_channels=64, kernel_size=3, padding=1, stride=1
+            ),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=64, out_channels=64, kernel_size=3, padding=1, stride=1
+            ),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # 32x32 -> 16x16
         )
+
         self.conv_block3 = nn.Sequential(
-            nn.Conv2d(64, 128, 3, 1, 1), nn.BatchNorm2d(128), nn.ReLU(),
-            nn.Conv2d(128, 128, 3, 1, 1), nn.BatchNorm2d(128), nn.ReLU(),
-            nn.MaxPool2d(2, 2)
+            nn.Conv2d(
+                in_channels=64, out_channels=128, kernel_size=3, padding=1, stride=1
+            ),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=128, out_channels=128, kernel_size=3, padding=1, stride=1
+            ),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # 16x16 -> 8x8
         )
-        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Global Average Pooling and Fully Connected Layers
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(
+            (1, 1)
+        )  # Reduces each 128-channel map to 1x1
+
         self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(128, 64), nn.ReLU(), nn.Dropout(0.5),
-            nn.Linear(64, num_classes),
+            nn.Flatten(),  # Input will be (batch_size, 128)
+            nn.Linear(in_features=128, out_features=64),
+            nn.ReLU(),
+            nn.Dropout(0.5),  # Standard dropout for FC layers
+            nn.Linear(in_features=64, out_features=num_classes),
         )
 
     def forward(self, x):
-        x = self.conv_block1(x); x = self.conv_block2(x); x = self.conv_block3(x)
-        x = self.global_avg_pool(x); x = self.classifier(x)
-        return x
+        x = self.conv_block1(x)
+        x = self.conv_block2(x)
+        x = self.conv_block3(x)
 
+        x = self.global_avg_pool(x)
+        x = self.classifier(x)
+
+        return x
 
 @torch.no_grad()
 def test(model, loader, loss_fn, device):
     model.eval()
     correct, total, loss_sum = 0, 0, 0.0
     for imgs, labels in loader:
-        imgs, labels = imgs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+        imgs = imgs.to(device)
+        labels = labels.to(device)
+
+        # forward pass
         out = model(imgs)
+
+        # extracting predicted labels
         loss_sum += loss_fn(out, labels).item()
         correct += (out.argmax(1) == labels).sum()
         total += labels.numel()
@@ -72,9 +124,11 @@ def main(args):
                             rank=rank,
                             device_id=device)
 
-    tfm = transforms.Compose([
-        transforms.ToImage(), transforms.ToDtype(torch.float32, scale=True),
-        transforms.RandomVerticalFlip(), transforms.RandomHorizontalFlip(),
+    transform = transforms.Compose([
+        transforms.ToImage(), 
+        transforms.ToDtype(torch.float32, scale=True),
+        transforms.RandomVerticalFlip(), 
+        transforms.RandomHorizontalFlip(),
         transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225]),
     ])
 
@@ -96,11 +150,10 @@ def main(args):
 
     model = Net(num_classes=10).to(device)
 
-    # Build a 1‑D device mesh (world‑size GPUs)
-    mesh = init_device_mesh("cuda", (world_size,))
-
     # **Minimal FSDP‑v2** : shard the *entire* model
-    model = fully_shard(model, mesh=mesh)                                       # :contentReference[oaicite:0]{index=0}
+    for layer in model.layers:
+        fully_shard(layer)
+    fully_shard(model)                                       # :contentReference[oaicite:0]{index=0}
 
     # --- OPTIONAL ADVANCED TOGGLES (uncomment to demo) --------------------------
     # (A) Mixed‑precision (bf16 parameters & reduce‑scatter in fp32)
@@ -139,8 +192,13 @@ def main(args):
 
             # simple metrics (rank‑0)
             dist.barrier()
+            images_per_sec = torch.tensor(len(train_loader) * args.batch_size / epoch_time).to(device)
+            acc, vloss = test(model, val_loader, loss_fn, device)
+            dist.all_reduce(acc, op=dist.ReduceOp.AVG)
+            dist.all_reduce(vloss, op=dist.ReduceOp.AVG)
+            dist.all_reduce(images_per_sec, op=dist.ReduceOp.SUM)
+
             if rank == 0:
-                acc, vloss = test(model, val_loader, loss_fn, device)
                 imgs_sec = (len(train_loader.dataset) / (time.time() - t0))
                 print(f"[epoch {epoch:2d}] loss {running/len(train_loader):.4f}  "
                     f"val‑loss {vloss:.4f}  val‑acc {acc:.4f}  imgs/s {imgs_sec:.1f}")
