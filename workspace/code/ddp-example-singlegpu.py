@@ -65,7 +65,7 @@ class Trainer:
 
     def _save_checkpoint(self, epoch):
         ckp = self.model.state_dict()
-        PATH = "ddp-example/singlegpu-checkpoint.pt"
+        PATH = "ddp-example-multigpu-checkpoint.pt"
         torch.save(ckp, PATH)
         print(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
 
