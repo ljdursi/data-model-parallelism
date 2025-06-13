@@ -105,7 +105,7 @@ if __name__ == "__main__":
         optimizer.step()
        
     # TODO - save just the stage
-    chkpt_dir='pipeline'
-    torch.save(model.state_dict(), chkpt_dir+"/example-single-model.pt") 
+    ckpt_dir='chkpoints'
+    torch.save(model.state_dict(), ckpt_dir+"/example-single-model.pt") 
 
     cleanup()

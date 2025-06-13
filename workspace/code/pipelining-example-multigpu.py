@@ -118,7 +118,7 @@ if __name__ == "__main__":
 
         optimizer.step()
 
-    ckpt_dir = "pipeline"
+    ckpt_dir='chkpoints'
     writer = dcp.FileSystemWriter(ckpt_dir)
     dcp.save({"stage": stage.submod},
              storage_writer=writer)
