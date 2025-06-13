@@ -192,8 +192,7 @@ def main(args):
             epoch_time = time.time() - t0
             images_per_sec = torch.tensor(len(train_loader) * args.batch_size / epoch_time).to(device)
             acc, vloss = test(model, val_loader, loss_fn, device)
-            dist.all_reduce(acc, op=dist.ReduceOp.AVG)
-            dist.all_reduce(vloss, op=dist.ReduceOp.AVG)
+            # TODO - reduce acc and vloss, too
             dist.all_reduce(images_per_sec, op=dist.ReduceOp.SUM)
 
             if rank == 0:
